@@ -1,16 +1,22 @@
 # Aim to generate good embeddings for problems
 import datetime
+from itertools import product
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
-from Objects.NeuralNetworkModel import EmbeddingNetwork
-from Objects.TriplesGenerator import TriplesGenerator
-from Old.questions_dataset import *
+from Datasets.Training import TrainDataset
+from Models.NeuralNetwork.NeuralNetworkModel import EmbeddingNetwork
 import numpy as np
 import sys
+from pytorch_metric_learning import miners, losses
+
+from datareader import Datareader
 
 """
 Hide categories and see results
@@ -48,39 +54,38 @@ class TripletLoss(nn.Module):
 
 
 def learn(argv):
-    # <batch size> <num epochs> <margin> <output_name>
-    argv = argv[1:]
-    usagemessage = "Should be 'python random_walk_model.py <train_file_name> <batch size> <num epochs> <margin> <output_name>'"
+    usagemessage = "Should be 'python train_NN.py <batch size> <num epochs> <margin> <output_name>'"
     if len(argv) < 4:
         print(usagemessage)
         return
 
-    data_file = argv[0]
-
-    batch = int(argv[1])
+    batch = int(argv[0])
     assert batch > 0, "Batch size should be more than 0\n" + usagemessage
 
-    numepochs = int(argv[2])
+    numepochs = int(argv[1])
     assert numepochs > 0, "Need more than " + str(numepochs) + " epochs\n" + usagemessage
 
-    outpath = argv[4] + "_" + datetime.datetime.now().strftime("%b%d_%H-%M-%S")
-
-    margin = float(argv[3])
+    margin = float(argv[2])
     assert 0 < margin, "Pick a margin greater than 0\n" + usagemessage
 
-    # phases = ["train"]
+    lr = float(argv[3])
+
+    outpath = argv[4]
+
+    filename = argv[5]
 
     print('Triplet embeddings training session. Inputs: ' + str(
         batch) + ', ' + str(numepochs) + ', ' + str(margin) + ', ' + outpath)
     #
     # print("Validation will happen ? ", doValidation)
 
-    # train_ds = QuestionDataset()
-    train_ds = TriplesGenerator(data_file, True, size = 0)
+    datareader = Datareader(filename, size=0, training_frac=0.7)
+
+    train_ds = TrainDataset(datareader.train)
     train_loader = DataLoader(train_ds, batch_size=batch, shuffle=True, num_workers=0)
 
     # Allow all parameters to be fit
-    model = EmbeddingNetwork(4)
+    model = EmbeddingNetwork(3)
 
     # model = torch.jit.script(model).to(device) # send model to GPU
     isParallel = torch.cuda.is_available()
@@ -91,17 +96,20 @@ def learn(argv):
 
     model = model.to(device)  # send model to GPU
 
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     # criterion = torch.jit.script(TripletLoss(margin=10.0))
-    criterion = TripletLoss(margin=margin)
+
+    easy = miners.TripletMarginMiner(margin=margin, type_of_triplets="all")
+    semi_hard = miners.TripletMarginMiner(margin=margin, type_of_triplets="semi-hard")
+    hard = miners.TripletMarginMiner(margin=margin, type_of_triplets="hard")
+    loss_func = losses.TripletMarginLoss(margin=margin)
 
     # let invalid epochs pass through without training
     if numepochs < 1:
         numepochs = 0
         loss = 0
 
-    run_name = datetime.datetime.now().strftime("%b%d_%H-%M-%S") + "_Epochs" + str(numepochs) + "_Datasize" + str(
-        len(train_ds))
+    run_name = outpath
     writer = SummaryWriter(log_dir="runs/" + run_name)
 
     train_steps = 0
@@ -111,49 +119,38 @@ def learn(argv):
 
         dataset, data_loader = train_ds, train_loader
 
-        losses = []
-        for step, (anchor_question, positive_question, negative_question) in enumerate(
+        epoch_losses = []
+        for step, (features, labels) in enumerate(
                 tqdm(data_loader, leave=True, position=0)):
-            anchor_question = anchor_question.to(device)  # send tensor to GPU
-            positive_question = positive_question.to(device)  # send tensor to GPU
-            negative_question = negative_question.to(device)  # send tensor to GPU
-
-            anchor_out = model(anchor_question)
-            positive_out = model(positive_question)
-            negative_out = model(negative_question)
-            # Clears space on GPU I think
-            del anchor_question
-            del positive_question
-            del negative_question
-            # Triplet Loss !!! + Backprop
-            loss = criterion(anchor_out, positive_out, negative_out)
-
             optimizer.zero_grad()
+            features = features.to(device)  # send tensor to GPU
 
+            embeddings = model(features)
+            # Clears space on GPU I think
+            del features
+
+            # Triplet Loss !!! + Backprop
+            percent = epoch / numepochs
+            if percent < 0.10:
+                pairs = easy(embeddings, labels)
+            elif 0.10 <= percent <= 0.30:
+                pairs = semi_hard(embeddings, labels)
+            else:
+                pairs = hard(embeddings, labels)
+
+            loss = loss_func(embeddings, labels, pairs)
             loss.backward()
             optimizer.step()
 
-            losses.append(loss.cpu().detach().numpy())
-
-            # batch_norm = torch.linalg.norm(anchor_out, ord = 1, dim= 1)
-            # embedding_norm = torch.mean(batch_norm)
-            # writer.add_scalar("Loss/embedding_norm", embedding_norm, s)
+            epoch_losses.append(loss.cpu().detach().numpy())
 
             writer.add_scalar("triplet_loss", loss, train_steps)
 
-            batch_positive_loss = torch.mean(criterion.calc_euclidean(anchor_out, positive_out))
-            batch_negative_loss = torch.mean(criterion.calc_euclidean(anchor_out, negative_out))
-            writer.add_scalar("Other/Positive_Loss", batch_positive_loss, train_steps)
-            writer.add_scalar("Other/Negative_Loss", batch_negative_loss, train_steps)
-            writer.add_scalar("Pos_Neg_Difference", batch_negative_loss - batch_positive_loss,
-                              train_steps)
-
             train_steps += batch
 
-        writer.add_scalar("Epoch_triplet_loss", np.mean(losses), epoch + 1)
+        writer.add_scalar("Epoch_triplet_loss", np.mean(epoch_losses), epoch + 1)
 
-        print("Epoch: {}/{} - Loss: {:.4f}".format(epoch + 1, numepochs, np.mean(losses)))
-
+        print("Epoch: {}/{} - Loss: {:.4f}".format(epoch + 1, numepochs, np.mean(epoch_losses)))
         # Saves model so that distances can be updated using new model
 
         weights = model.module.state_dict() if isParallel else model.state_dict()
@@ -168,7 +165,18 @@ def learn(argv):
 
 
 if __name__ == '__main__':
-    learn(sys.argv)
+    batches = [64, 128, 256]
+    epochs = [30]
+    margins = [0.05, 0.1, 0.5]
+    lrs = [0.0001, 0.001, 0.01, 1]
+    filename = "../../skill_builder_data.csv"
 
+    params = [batches, epochs, margins, lrs]
+
+    for ps in product(*params):
+        b, e, m, l = ps
+        s = [str(x) for x in ps]
+        output = "WeightFiles/" + "_".join(s)
+        learn([b, e , m ,l , output, filename])
 # Annealing on the margin
 # Experiment with hyperparameters

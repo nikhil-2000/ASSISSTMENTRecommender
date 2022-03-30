@@ -4,10 +4,9 @@ import torch.nn.functional as F
 
 
 class EmbeddingNetwork(nn.Module):
-    def __init__(self, in_channels=4, out_channels=300):
+    def __init__(self, in_channels=3, out_channels=300):
         super().__init__()
-        self.fc1 = nn.Linear(in_channels, 128)  # Categories + Metrics
-        # self.fc1 = nn.Linear(19, 128) # Categories Only
+        self.fc1 = nn.Linear(in_channels, 128)
         self.fc2 = nn.Linear(128, 2048)
         self.fc3 = nn.Linear(2048, out_channels)
 

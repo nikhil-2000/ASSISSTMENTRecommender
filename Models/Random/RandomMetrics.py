@@ -4,21 +4,21 @@ import random
 
 class RandomChoiceMetrics:
 
-    def __init__(self, metadata):
+    def __init__(self, dataset):
 
-        self.metadata = metadata
+        self.items = dataset.item_ids
         # self.metadata = pd.DataFrame(self.metadata, columns=["problem_id", "skill_id", "skill_name"])
         self.hits = 0
         self.ranks = []
 
     def top_n_questions(self, anchor, search_size):
         # df_metadata = pd.DataFrame(metadata, columns=["problem_id", "skill_id", "skill_name"])
-        anchor_id = anchor.problem_id.item()
-        if search_size <= len(self.metadata):
-            return self.metadata.problem_id.sample(search_size).to_list()
+
+        if search_size <= len(self.items):
+            return self.items.sample(search_size).to_list()
         else:
-            metadata_size = len(self.metadata)
-            return self.metadata.sample(metadata_size).to_list() + [0] * (search_size - metadata_size)
+            metadata_size = len(self.items)
+            return self.items.sample(metadata_size).to_list() + [0] * (search_size - metadata_size)
 
     def rank_questions(self, ids, anchor):
         random.shuffle(ids)
