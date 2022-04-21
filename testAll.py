@@ -17,8 +17,8 @@ from Models.URW.URW_Metrics import URW_Metrics
 from datareader import Datareader
 
 
-def run_metrics(model, samples = 1000, tests = 1000, size = 0):
-    datareader = Datareader("skill_builder_data.csv", size=0, training_frac=0.7)
+def run_metrics(model, samples = 1000, tests = 5000, size = 0):
+    datareader = Datareader("skill_builder_data.csv", size=size, training_frac=0.7)
     train = TestDataset(datareader.train)
     test = TestDataset(datareader.test)
 
@@ -30,6 +30,8 @@ def run_metrics(model, samples = 1000, tests = 1000, size = 0):
     phases = ["train", "test"]
 
     urw = UnweightedRandomWalk(train)
+    output = PrettyTable()
+    output.field_names = ["Phase", "Model", "Hitrate", "Mean Rank"]
 
     for phase in phases:
         dataset, dataloader = datasets[phase] , dataloaders[phase]
@@ -42,7 +44,7 @@ def run_metrics(model, samples = 1000, tests = 1000, size = 0):
     # models = [urw_metrics]
         metrics = [urw_metrics, neural_network_metrics, random_metrics]
 
-        search_size = 30
+        search_size = 20
 
 
     # model_names = ["Random Walk", "Same Skill", "Random Choice", "Collab Filtering"]
@@ -52,7 +54,7 @@ def run_metrics(model, samples = 1000, tests = 1000, size = 0):
             # Pick Random User
             total_interactions = 0
             while total_interactions < 5:
-                user = urw_metrics.sample_user()
+                user = neural_network_metrics.sample_user()
                 user_interactions, total_interactions = user.interactions, len(user.interactions)
             # Generate Anchor Positive
             a_idx, p_idx = random.sample(range(0, total_interactions), 2)
@@ -63,18 +65,18 @@ def run_metrics(model, samples = 1000, tests = 1000, size = 0):
             positive_id = positive.problem_id.item()
 
             without_positive = dataset.item_ids[~dataset.item_ids.isin(user_interactions.problem_id.unique())]
-            random_ids = np.random.choice(without_positive,samples).tolist()
+            random_ids = np.random.choice(without_positive,samples-1).tolist()
             all_ids = random_ids + [positive_id]
             random.shuffle(all_ids)
 
             # Find n Closest
             for i,m in enumerate(metrics):
-                # top_n = m.top_n_questions(anchor, search_size)
+                top_n = m.top_n_questions(anchor, search_size)
                 ranking = m.rank_questions(all_ids, anchor)
 
-                # set_prediction = set(top_n)
-                # if positive_id in set_prediction:
-                #     m.hits += 1
+                set_prediction = set(top_n)
+                if any([pos in set_prediction for pos in user_interactions.problem_id]):
+                    m.hits += 1
 
                 rank = ranking.index(positive_id)
 
@@ -84,14 +86,13 @@ def run_metrics(model, samples = 1000, tests = 1000, size = 0):
             #     print(same_skill_metrics.ranks[-1])
 
 
-        output = PrettyTable()
-        output.field_names = ["Phase", "Model", "Mean Rank"]
+
         for i, name in enumerate(model_names):
             m = metrics[i]
 
-            # hr = m.hitrate(tests)
+            hr = m.hitrate(tests)
             mr = m.mean_rank()
-            output.add_row([phase, name, mr])
+            output.add_row([phase, name, hr, mr])
 
 
         print(output)
@@ -100,8 +101,8 @@ def run_metrics(model, samples = 1000, tests = 1000, size = 0):
 
 if __name__ == '__main__':
 
-    model_file = "D:\My Docs/University\Year 4\Individual Project/Assisstments_Dataset/Models/NeuralNetwork/WeightFiles/64_30_0.05_0.01.pth"
-    run_metrics(model_file, samples = 1000, tests = 1000, size = 0)
+    model_file = "128_30_0.05_0.01.pth"
+    run_metrics(model_file, samples = 1000, tests = 5000, size = 0000)
 
     # run_metrics("../non_skill_builder_data_new.csv", "questions_dataset_Mar10_16-48-43.pth", samples = 500, tests = 1000, size = 0000)
 

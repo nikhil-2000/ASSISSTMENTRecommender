@@ -24,7 +24,7 @@ class TrainDataset:
 
         # return torch.Tensor([s["avg_rating"],s["views"],s["male_views"],s["female_views"],s["avg_age"]])
 
-        return torch.Tensor(data), skill_id
+        return torch.Tensor(data), int(skill_id)
 
 
 if __name__ == '__main__':

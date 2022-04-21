@@ -1,5 +1,6 @@
 import os
 import random
+from datetime import datetime
 
 from prettytable import PrettyTable
 from torch.utils.data import DataLoader
@@ -7,6 +8,7 @@ from tqdm import trange, tqdm
 
 from Datasets.Testing import TestDataset
 from Models.NeuralNetwork.compute_embeddings import CalcEmbeddings
+from Models.NeuralNetwork.visualise_embeddings import add_embeddings_to_tensorboard
 from datareader import Datareader
 import numpy as np
 import pandas as pd
@@ -38,7 +40,7 @@ class NormalNNMetrics:
         users = []
         # print(len(all_skills))
         # skill_vectors = pd.DataFrame(columns=["user_id"] + list(all_skills))
-        print("\nCreating Users")
+        # print("\nCreating Users")
         # for user in tqdm(all_users):
         for user in all_users:
             u_ratings = user_ratings[user_ratings["user_id"] == user]
@@ -105,14 +107,17 @@ class User:
         self.is_completed.problem_id = all_question_ids
         self.is_completed.attempted = self.is_completed.problem_id.isin(self.user_qs).astype(int)
         self.is_completed.set_index("problem_id", inplace=True)
-def test_model(file, model_file):
-    train_reader = Datareader(file, size=0, training_frac=0.7)
+
+
+def test_model(datareader, model_file):
+
+    # Allow all parameters to be fit
 
     metrics = []
     datasets = []
     dataloaders = []
 
-    for d in [train_reader.train, train_reader.test, train_reader.interactions]:
+    for d in [datareader.train, datareader.validation, datareader.test]:
         data = TestDataset(d)
         loader = DataLoader(data, batch_size=64)
         metric = NormalNNMetrics(loader, model_file, data)
@@ -120,22 +125,23 @@ def test_model(file, model_file):
         datasets.append(data)
         dataloaders.append(loader)
 
-    model_names = ["Train", "Test", "All"]
+    model_names = ["Train", "Val" ,"Test"]
 
     params = zip(metrics, datasets, dataloaders, model_names)
 
-    search_size = 30
+    search_size = 100
     tests = 1000
     samples = 1000
     output = PrettyTable()
     output.field_names = ["Data", "Hitrate", "Mean Rank"]
 
     ranks = []
+    hitrates = []
     for metric, data, loader, name in params:
 
         print("\nTesting " + name)
-        # for i in trange(tests):
-        for i in range(tests):
+        for i in trange(tests):
+        # for i in range(tests):
             # Pick Random User
             total_interactions = 0
             while total_interactions < 5:
@@ -158,7 +164,7 @@ def test_model(file, model_file):
             ranking = metric.rank_questions(all_ids, anchor)
 
             set_prediction = set(top_n)
-            if positive_id in set_prediction:
+            if any([pos in set_prediction for pos in user_interactions.problem_id]):
                 metric.hits += 1
 
             rank = ranking.index(positive_id)
@@ -169,13 +175,46 @@ def test_model(file, model_file):
         mr = metric.mean_rank()
         output.add_row([name, hr, mr])
         ranks.append(mr)
+        hitrates.append(hr)
 
-    return output, ranks
+    return output, ranks, hitrates
+
+def visualise(datareader, model_file, name):
+    name = name + datetime.now().strftime("%b%d_%H-%M-%S")
+    add_embeddings_to_tensorboard(datareader, model_file,name)
+
+
+def testWeightsFolder(datareader):
+
+    model_files = []
+    rank_table = PrettyTable()
+    rank_table.field_names = ["Model", "Train", "Val", "Test"]
+
+    hr_table = PrettyTable()
+    hr_table.field_names = ["Model", "Train", "Val", "Test"]
+
+    for model_file in tqdm(os.listdir("WeightFiles")):
+        model_file_path = "WeightFiles/" + model_file
+        t, ranks, hitrates = test_model(datareader, model_file_path)
+        model_files.append(model_file)
+        rank_table.add_row([model_file] + [str(r) for r in ranks])
+        hr_table.add_row([model_file] + [str(h) for h in hitrates])
+
+        print(rank_table)
+        print(hr_table)
+        visualise(datareader,model_file_path, "Embeddings" )
+
 
 
 if __name__ == '__main__':
     file = "../../skill_builder_data.csv"
 
-    out, ranks = test_model(file, "test.pth")
-    print(out)
-    print(ranks)
+    tables = []
+    model_files = []
+    rank_table = PrettyTable()
+    rank_table.field_names = ["Model", "Train", "Val", "Test"]
+
+    hr_table = PrettyTable()
+    hr_table.field_names = ["Model", "Train", "Val", "Test"]
+    datareader = Datareader(file, size=0, training_frac=0.7, val_frac=0.2)
+    testWeightsFolder(datareader)

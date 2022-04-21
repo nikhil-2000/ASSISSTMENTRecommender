@@ -14,10 +14,13 @@ class CalcEmbeddings:
 
 
     def set_model(self):
-        model = EmbeddingNetwork()
-
         weight_path = self.model_file
-        state_dict = torch.load(weight_path)["model_state_dict"]
+        loaded_file = torch.load(weight_path)
+        state_dict = loaded_file["model_state_dict"]
+        n_skills = loaded_file["n_skills"]
+        model = EmbeddingNetwork(n_skills = n_skills)
+
+
         model.load_state_dict(state_dict)
 
         self.model = model
@@ -28,14 +31,17 @@ class CalcEmbeddings:
         metadata = []
         print("\nGenerating Embeddings")
         count = 0
-        for vector, info in tqdm(self.dataloader):
+        for vector, info in tqdm(self.dataloader, leave=True, position=0):
+        # for vector, info in self.dataloader:
             skill_ids, skill_names, item_ids = info
-            out = self.model(vector)
+            out = self.model(vector, skill_ids)
             out = out.detach().numpy()
             embeddings.extend(out)
             count += len(item_ids)
             item_ids = item_ids.detach().tolist()
-            metadata.extend(item_ids)
+            skill_ids = skill_ids.detach().tolist()
+
+            metadata.extend(list(zip(skill_ids, skill_names, item_ids)))
             for i, id in enumerate(item_ids):
                 embeddings_dict[id] = out[i]
 

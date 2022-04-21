@@ -1,5 +1,6 @@
 import numpy as np
 from tqdm import tqdm
+# vector_features = ["attempt_count", "correct", "ms_first_response","skill_id_normalised"]
 vector_features = ["attempt_count", "correct", "ms_first_response"]
 
 def normalise(df):
@@ -16,6 +17,8 @@ def add_metrics(interactions):
     questions = questions.agg(funcs_to_apply)
     normalised = normalise(questions)
     questions[q_cols[:-1]] = normalised[q_cols[:-1]]
+    questions["skill_id_normalised"] = normalise(questions["skill_id"])
+
     # problems.reset_index(level=0, inplace=True)
 
     u_cols = ["attempt_count", "correct", "ms_first_response"]

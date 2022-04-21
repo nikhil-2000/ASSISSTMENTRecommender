@@ -1,3 +1,5 @@
+import random
+
 import pandas as pd
 import numpy as np
 from sklearn.metrics import pairwise_distances
@@ -9,12 +11,13 @@ from datareader import Datareader
 
 class UnweightedRandomWalk:
 
-    def __init__(self, dataset: TrainDataset):
+    def __init__(self, dataset: TrainDataset, closest =50):
 
         self.dataset = dataset
         self.users, self.skills = self.create_users()
         self.vectors, self.id_to_idx = self.get_user_scores()
         self.dists = pairwise_distances(self.vectors.transpose())
+        self.closest = closest
 
     def create_users(self):
         interactions = self.dataset.interaction_df
@@ -34,7 +37,7 @@ class UnweightedRandomWalk:
             user_scores = user_performance[user_performance["user_id"] == user]
             user_interactions = interactions[interactions.user_id == user]
             new_user = User(user_scores, all_skills, user_interactions)
-            new_user.generate_q_completed_df(all_questions)
+            # new_user.generate_q_completed_df(all_questions)
             users.append(new_user)
         # user_performance.reset_index(inplace = True)
 
@@ -52,12 +55,16 @@ class UnweightedRandomWalk:
         return score_matrix, ids_to_idx
 
     def get_closest_users(self, user_id):
+        if user_id not in self.id_to_idx:
+            user_id = random.choice(self.users).id
+            return self.get_closest_users(user_id)
+
         idx = self.id_to_idx[user_id]
         dists_from_users = self.dists[:, idx]
         dists_from_users = dists_from_users[dists_from_users > 0]
         sorted_indexes = np.argsort(dists_from_users)
-        closest_20_percent = max(len(sorted_indexes) // 20, 10)
-        best_idxs = sorted_indexes[:closest_20_percent]
+        closest = max(len(sorted_indexes) // self.closest, 10)
+        best_idxs = sorted_indexes[:closest]
         closest_users_dists = dists_from_users[best_idxs]
         closest_users = [self.users[i] for i in best_idxs]
         return closest_users_dists, closest_users
@@ -73,11 +80,11 @@ class User:
             skill, score = row["skill_id"], row["correct"]
             d[skill] = score
 
-        if sum(d.values()) == 0:
-            self.scores = np.array([0.5 for c in all_skills])
+        # if sum(d.values()) == 0:
+        #     self.scores = np.array([0.5 for c in all_skills])
 
-        else:
-            self.scores = np.array(list(d.values()))
+
+        self.scores = np.array(list(d.values()))
         self.interactions = user_interactions
 
         self.user_qs = self.interactions.problem_id.unique()

@@ -12,6 +12,7 @@ from Datasets.Testing import TestDataset
 from Datasets.Training import TrainDataset
 from Models.URW.URW import UnweightedRandomWalk, User
 from datareader import Datareader
+from Models.URW.URW_Metrics_old import UnweightedRandomWalkMetricsOld
 
 """
 Create a user similarity matrix
@@ -127,32 +128,32 @@ def convert_distances(distances, search_size):
     return x
 
 
-def test_model(file):
-    train_reader = Datareader(file, size=10000, training_frac=0.7)
+def test_model(file, urw):
+    train_reader = Datareader(file, size=00000, training_frac=0.7)
 
     metrics = []
     datasets = []
 
-    data = TrainDataset(train_reader.train)
-    urw = UnweightedRandomWalk(data)
 
-    for d in [train_reader.train, train_reader.test, train_reader.interactions]:
 
-        metric = URW_Metrics(data, urw)
+    for d in [train_reader.train, train_reader.test]:
+        d = TestDataset(d)
+        metric = URW_Metrics(d,urw )
         metrics.append(metric)
-        datasets.append(data)
+        datasets.append(d)
 
-    model_names = ["Train", "Test", "All"]
+    model_names = ["Train", "Test"]
 
     params = zip(metrics, datasets, model_names)
 
-    search_size = 30
+    search_size = 100
     tests = 1000
     samples = 1000
     output = PrettyTable()
-    output.field_names = ["Data", "Hitrate", "Mean Rank"]
+    output.field_names = ["Data"] + model_names
 
     ranks = []
+
     for metric, data, name in params:
 
         print("\nTesting " + name)
@@ -176,26 +177,44 @@ def test_model(file):
             random.shuffle(all_ids)
 
             # Find n Closest
-            top_n = metric.top_n_questions(anchor, search_size)
+            # top_n = metric.top_n_questions(anchor, search_size)
             ranking = metric.rank_questions(all_ids, anchor)
+            # old_ranking = old_metric.rank_questions(all_ids, anchor)
 
-            set_prediction = set(top_n)
-            if positive_id in set_prediction:
-                metric.hits += 1
+            # set_prediction = set(top_n)
+            # if positive_id in set_prediction:
+            #     metric.hits += 1
 
             rank = ranking.index(positive_id)
 
+
             metric.ranks.append(rank)
 
-        hr = metric.hitrate(tests)
         mr = metric.mean_rank()
-        output.add_row([name, hr, mr])
         ranks.append(mr)
+
+    output.add_row([urw.closest] + [str(r) for r in ranks])
+    print(output)
 
     return output, ranks
 
 
 if __name__ == '__main__':
-    out, ranks = test_model("../../skill_builder_data.csv")
-    print(out)
-    print(ranks)
+    file = "../../skill_builder_data.csv"
+    train_reader = Datareader(file, size=00000, training_frac=0.7)
+
+    data = TrainDataset(train_reader.train)
+    c = [10,20,40,50,100]
+    c.reverse()
+    output = PrettyTable()
+    output.field_names = ["Data","Train","Test"]
+
+    models = []
+    for n in c:
+        urw = UnweightedRandomWalk(data, closest=n)
+
+        out, ranks = test_model(file, urw)
+        output.add_row([urw.closest] + [str(r) for r in ranks])
+
+        print(output)
+
