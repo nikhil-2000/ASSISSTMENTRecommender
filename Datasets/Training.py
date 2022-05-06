@@ -1,33 +1,36 @@
 import torch
 
+from Datasets.datasetBase import DatasetBase
+from datareader import Datareader
 from helper_funcs import vector_features, add_metrics
 
 
-class TrainDataset:
+class TrainDataset(DatasetBase):
     def __init__(self, interactions):
         # self.dataset = Dataset(filename, size=size)
-        self.interaction_df = interactions
-        self.item_df, self.users_df = add_metrics(interactions)
 
-        self.item_ids = self.item_df.index.to_series()
+        super(TrainDataset, self).__init__(interactions)
 
-    def __len__(self):
-        return len(self.item_ids)
 
     def __getitem__(self, index: int):
         # Extracts Categories + Metrics
-        item_id = self.item_ids.iloc[index]
-        s = self.item_df.loc[item_id]
-        data = s[vector_features].to_list()
+        s = self.items_df.iloc[index]
+        question_data = s[vector_features].to_list()
+        user_data = s[vector_features].to_list()
+        data = user_data + question_data
 
         skill_id = s["skill_id"].item()
+        user_id = self.items_df.index.get_level_values(1)[index]
 
         # return torch.Tensor([s["avg_rating"],s["views"],s["male_views"],s["female_views"],s["avg_age"]])
 
-        return torch.Tensor(data), int(skill_id)
+        return torch.Tensor(data), int(skill_id), int(user_id)
 
 
 if __name__ == '__main__':
+    reader = Datareader("../skill_builder_data.csv", size = 1000)
+    mt = TrainDataset(reader.interactions)
+    df = mt.items_df.reset_index()
+    row = df.iloc[0]
 
-    mt = TrainDataset("../../../ml-100k/ua.base")
-    print(mt[0])
+    print()

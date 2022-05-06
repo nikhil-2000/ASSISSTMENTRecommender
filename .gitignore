@@ -135,3 +135,7 @@ runs/
 non_skill_builder_data_new.csv
 skill_builder_data.csv
 ModelFiles
+without_duplicates.csv
+*.pickle
+Models/GCN/runs-final/
+Models/GCN/runs-fixed/

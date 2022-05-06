@@ -30,20 +30,28 @@ class CalcEmbeddings:
         embeddings_dict = {}
         metadata = []
         print("\nGenerating Embeddings")
-        count = 0
-        for vector, info in tqdm(self.dataloader, leave=True, position=0):
-        # for vector, info in self.dataloader:
-            skill_ids, skill_names, item_ids = info
+
+        for vector, skill_ids, info, keys in tqdm(self.dataloader, leave=True, position=0):
+            keys = torch.stack(keys).detach().T.tolist()
+
+            rows_without_skill_name = info[:3] + info[4:]
+            rows_without_skill_name = torch.stack(rows_without_skill_name).detach().tolist()
+            rows_without_skill_name.insert(3,list(info[3]))
+            rows_without_skill_name.insert(0, keys)
+
             out = self.model(vector, skill_ids)
             out = out.detach().numpy()
             embeddings.extend(out)
-            count += len(item_ids)
-            item_ids = item_ids.detach().tolist()
-            skill_ids = skill_ids.detach().tolist()
+            # count += len(item_ids)
+            rows = list(tuple(zip(*rows_without_skill_name)))
+            metadata.extend(rows)
+            keys = map(tuple, keys)
+            key_vals = list(zip(keys, out))
+            # for i, k in enumerate(keys):
+            #     embeddings_dict[k] = out[i]
+            embeddings_dict.update(key_vals)
 
-            metadata.extend(list(zip(skill_ids, skill_names, item_ids)))
-            for i, id in enumerate(item_ids):
-                embeddings_dict[id] = out[i]
+
 
         embeddings = np.array(embeddings).squeeze()
 

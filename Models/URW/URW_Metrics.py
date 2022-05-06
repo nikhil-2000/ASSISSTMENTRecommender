@@ -10,9 +10,10 @@ from tqdm import tqdm, trange
 
 from Datasets.Testing import TestDataset
 from Datasets.Training import TrainDataset
-from Models.URW.URW import UnweightedRandomWalk, User
+from Models.MetricBase import MetricBase
+from Models.URW.URW import UnweightedRandomWalk
 from datareader import Datareader
-from Models.URW.URW_Metrics_old import UnweightedRandomWalkMetricsOld
+from helper_funcs import MRR, convert_distances
 
 """
 Create a user similarity matrix
@@ -28,27 +29,14 @@ Get the K nearest users, rank by most completed problems
 """
 
 
-class URW_Metrics:
+class URW_Metrics(MetricBase):
 
     def __init__(self, dataset, model):
         self.dataset = dataset
 
         self.model = model
+        super(URW_Metrics, self).__init__()
 
-        self.hits = 0
-        self.ranks = []
-
-    def __len__(self):
-        return len(self.dataset.ratings_df)
-
-    def sample_user(self):
-        return random.choice(self.model.users)
-
-    def hitrate(self, tests):
-        return 100 * self.hits / tests
-
-    def mean_rank(self):
-        return sum(self.ranks) / len(self.ranks)
 
     def top_n_questions(self, anchor, search_size):
         # Get top 10% closest users
@@ -67,16 +55,24 @@ class URW_Metrics:
 
         for i, user in enumerate(users):
             max_qs = questions_to_choose[i]
-            predicted = user.get_questions_by_correct(anchor, max_qs)
-            top_n.extend(predicted)
-            questions_to_choose[i] -= len(predicted)
+            if max_qs > 0:
+                predicted = user.get_questions_by_correct(anchor, max_qs)
+                # predicted = user.get_questions(anchor, max_qs)
+                # predicted = user.get_questions_by_skill(anchor.skill_id, max_qs)
+                top_n.extend(predicted)
+                questions_to_choose[i] -= len(predicted)
+
+            if i+1 < len(users):
+                leftover = questions_to_choose[i]
+                questions_to_choose[i+1] += leftover
+                questions_to_choose[i] = 0
 
         remaining = sum(questions_to_choose)
         break_loop = 0
         while remaining > 0:
-            id = self.dataset.item_ids.sample(1).item()
-            if not id in top_n:
-                top_n.append(id)
+            q_id = self.dataset.item_ids.sample(1).item()
+            if not q_id in top_n:
+                top_n.append(q_id)
                 remaining -= 1
             else:
                 break_loop += 1
@@ -86,6 +82,9 @@ class URW_Metrics:
                 remaining = -1
 
         return top_n
+
+    # def probability_selection(self, weights, closest_users):
+
 
     def rank_questions(self, ids, anchor):
         user_id = anchor.user_id.item()
@@ -118,103 +117,9 @@ class URW_Metrics:
 
         return [h[0] for h in highest]
 
-def convert_distances(distances, search_size):
-    x = 1 / distances
-    x = x / x.sum(axis=0)
-    x = search_size * x
-    x = np.floor(x)
-    leftover = search_size - sum(x)
-    x[0] += leftover
-    return x
-
-
-def test_model(file, urw):
-    train_reader = Datareader(file, size=00000, training_frac=0.7)
-
-    metrics = []
-    datasets = []
 
 
 
-    for d in [train_reader.train, train_reader.test]:
-        d = TestDataset(d)
-        metric = URW_Metrics(d,urw )
-        metrics.append(metric)
-        datasets.append(d)
-
-    model_names = ["Train", "Test"]
-
-    params = zip(metrics, datasets, model_names)
-
-    search_size = 100
-    tests = 1000
-    samples = 1000
-    output = PrettyTable()
-    output.field_names = ["Data"] + model_names
-
-    ranks = []
-
-    for metric, data, name in params:
-
-        print("\nTesting " + name)
-        for i in trange(tests):
-        # for i in range(tests):
-            # Pick Random User
-            total_interactions = 0
-            while total_interactions < 5:
-                user = metric.sample_user()
-                user_interactions, total_interactions = user.interactions, len(user.interactions)
-            # Generate Anchor Positive
-            a_idx, p_idx = random.sample(range(0, total_interactions), 2)
-            anchor = user_interactions.iloc[a_idx]
-
-            positive = user_interactions.iloc[p_idx]
-            positive_id = positive.problem_id.item()
-
-            without_positive = data.item_ids[~data.item_ids.isin(user_interactions.problem_id.unique())]
-            random_ids = np.random.choice(without_positive, samples).tolist()
-            all_ids = random_ids + [positive_id]
-            random.shuffle(all_ids)
-
-            # Find n Closest
-            # top_n = metric.top_n_questions(anchor, search_size)
-            ranking = metric.rank_questions(all_ids, anchor)
-            # old_ranking = old_metric.rank_questions(all_ids, anchor)
-
-            # set_prediction = set(top_n)
-            # if positive_id in set_prediction:
-            #     metric.hits += 1
-
-            rank = ranking.index(positive_id)
 
 
-            metric.ranks.append(rank)
-
-        mr = metric.mean_rank()
-        ranks.append(mr)
-
-    output.add_row([urw.closest] + [str(r) for r in ranks])
-    print(output)
-
-    return output, ranks
-
-
-if __name__ == '__main__':
-    file = "../../skill_builder_data.csv"
-    train_reader = Datareader(file, size=00000, training_frac=0.7)
-
-    data = TrainDataset(train_reader.train)
-    c = [10,20,40,50,100]
-    c.reverse()
-    output = PrettyTable()
-    output.field_names = ["Data","Train","Test"]
-
-    models = []
-    for n in c:
-        urw = UnweightedRandomWalk(data, closest=n)
-
-        out, ranks = test_model(file, urw)
-        output.add_row([urw.closest] + [str(r) for r in ranks])
-
-        print(output)
 

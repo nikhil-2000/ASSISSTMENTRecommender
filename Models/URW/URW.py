@@ -63,7 +63,7 @@ class UnweightedRandomWalk:
         dists_from_users = self.dists[:, idx]
         dists_from_users = dists_from_users[dists_from_users > 0]
         sorted_indexes = np.argsort(dists_from_users)
-        closest = max(len(sorted_indexes) // self.closest, 10)
+        closest = self.closest
         best_idxs = sorted_indexes[:closest]
         closest_users_dists = dists_from_users[best_idxs]
         closest_users = [self.users[i] for i in best_idxs]
@@ -88,12 +88,9 @@ class User:
         self.interactions = user_interactions
 
         self.user_qs = self.interactions.problem_id.unique()
-        self.is_completed = pd.DataFrame(columns=["problem_id", "attempted"])
+        self.correct_qs = self.interactions.loc[self.interactions.correct == 1]
+        self.incorrect_qs = self.interactions.loc[self.interactions.correct == 0]
 
-    def generate_q_completed_df(self, all_question_ids):
-        self.is_completed.problem_id = all_question_ids
-        self.is_completed.attempted = self.is_completed.problem_id.isin(self.user_qs).astype(int)
-        self.is_completed.set_index("problem_id", inplace=True)
 
     def get_vector(self):
         # print(self.scores.transpose().shape)
@@ -117,7 +114,7 @@ class User:
 
     def get_questions_by_correct(self, anchor, max_ret):
         correct = anchor.correct.item()
-        potential_qs = self.interactions.loc[self.interactions.correct == correct]
+        potential_qs = self.correct_qs if correct == 1 else self.incorrect_qs
 
         if len(potential_qs) > max_ret:
             return potential_qs.problem_id.sample(max_ret).to_list()
@@ -127,6 +124,12 @@ class User:
     def get_correct_ids(self, questions):
         attempted = [1 if q in self.user_qs else 0 for q in questions]
         return np.array(attempted).squeeze()
+
+    def get_questions(self, anchor, max_ret):
+        if len(self.interactions) > max_ret:
+            return self.interactions.sample(max_ret).problem_id.to_list()
+        else:
+            return self.interactions.problem_id.to_list()
 
 
 if __name__ == '__main__':
